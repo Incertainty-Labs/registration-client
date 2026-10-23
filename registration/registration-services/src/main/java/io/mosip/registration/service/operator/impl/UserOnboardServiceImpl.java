@@ -466,16 +466,25 @@ public class UserOnboardServiceImpl extends BaseService implements UserOnboardSe
 					.get(RegistrationConstants.ERRORS);
 			LinkedHashMap<String, Object> responseMap = (LinkedHashMap<String, Object>) onBoardResponseMap
 					.get(RegistrationConstants.RESPONSE);
-			userOnbaordFlag = (Boolean) responseMap.get(RegistrationConstants.ON_BOARD_AUTH_STATUS);
+			// IDA may reject with errors only and no response, so the response must not be required here
+			userOnbaordFlag = responseMap != null
+					&& Boolean.TRUE.equals(responseMap.get(RegistrationConstants.ON_BOARD_AUTH_STATUS));
 			LOGGER.error(LOG_REG_USER_ONBOARD, APPLICATION_NAME, APPLICATION_ID, listOfFailureResponse.toString());
 			setErrorResponse(responseDTO,
-					listOfFailureResponse.size() > 0 ? (String) listOfFailureResponse.get(0).get("errorMessage")
+					listOfFailureResponse.size() > 0 ? idaErrorMessage(listOfFailureResponse.get(0))
 							: RegistrationConstants.USER_ON_BOARDING_THRESHOLD_NOT_MET_MSG,
 					null);
 		}
 
 		return userOnbaordFlag;
 
+	}
+
+	/** @return IDA's error as "errorCode --> errorMessage", or just the message when IDA gives no code */
+	private String idaErrorMessage(Map<String, Object> idaError) {
+		Object code = idaError.get("errorCode");
+		Object message = idaError.get("errorMessage");
+		return code == null ? (String) message : code + " --> " + message;
 	}
 
 	@Override
