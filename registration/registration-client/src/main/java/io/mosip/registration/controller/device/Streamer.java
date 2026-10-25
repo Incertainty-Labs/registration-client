@@ -4,12 +4,16 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.stereotype.Component;
 
 import io.mosip.kernel.core.logger.spi.Logger;
 import io.mosip.registration.config.AppConfig;
 import io.mosip.registration.context.SessionContext;
+import javafx.application.Platform;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 
@@ -17,6 +21,28 @@ import javafx.scene.image.ImageView;
 public class Streamer {
 
 	private static final Logger LOGGER = AppConfig.getLogger(Streamer.class);
+
+	/** Gets each JPEG of the live stream, on the stream thread; face liveness uses it (PS04). */
+	public interface FrameTap {
+		void onJpeg(byte[] jpeg);
+
+		/** The stream ended without being stopped, for example because the device was unplugged. */
+		void onStreamEnded(String detail);
+	}
+
+	private final List<FrameTap> frameTaps = new CopyOnWriteArrayList<>();
+
+	// The newest frame for the preview, and whether one is already queued on the JavaFX thread
+	private volatile Image previewImage;
+	private final AtomicBoolean previewPending = new AtomicBoolean();
+
+	public void addFrameTap(FrameTap tap) {
+		frameTaps.add(tap);
+	}
+
+	public void removeFrameTap(FrameTap tap) {
+		frameTaps.remove(tap);
+	}
 
 	private InputStream urlStream;
 
@@ -98,14 +124,33 @@ public class Streamer {
 				while (null != urlStream) {
 					try {
 						imageBytes = retrieveNextImage(urlStream);
+						for (FrameTap tap : frameTaps) {
+							try {
+								tap.onJpeg(imageBytes);
+							} catch (RuntimeException e) {
+								LOGGER.error("Frame tap failed", e);
+							}
+						}
 						ByteArrayInputStream imageStream = new ByteArrayInputStream(imageBytes);
 						Image img = new Image(imageStream);
-						streamImage.setImage(img);
+						// The preview is set on the JavaFX thread; frames that arrive while one is queued are skipped
+						previewImage = img;
+						if (previewPending.compareAndSet(false, true)) {
+							Platform.runLater(() -> {
+								previewPending.set(false);
+								streamImage.setImage(previewImage);
+							});
+						}
 						if (null != scanImage) {
 							setStreamImage(img);
 						}
 					} catch (Throwable t) {
 						LOGGER.error("Failed in streamer_thread", t);
+						if (isRunning) {
+							for (FrameTap tap : frameTaps) {
+								tap.onStreamEnded(t.toString());
+							}
+						}
 						urlStream = null;
 					}
 				}
@@ -153,8 +198,12 @@ public class Streamer {
 		}
 
 		// 255 indicates the start of the jpeg image
-		while (urlStream.read() != 255) {
-
+		int next;
+		while ((next = urlStream.read()) != 255) {
+			if (next == -1) {
+				// Without this the loop spun forever once the device closed the stream
+				throw new IOException("End of the live stream");
+			}
 		}
 
 		// && urlStream.read()!=-1

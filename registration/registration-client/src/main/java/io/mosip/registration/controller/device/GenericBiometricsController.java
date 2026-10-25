@@ -155,6 +155,10 @@ public class GenericBiometricsController extends BaseController {
 	@Autowired
 	private Streamer streamer;
 
+	/** Face liveness before the face capture (PS04); off unless configured. */
+	@Autowired
+	private ResidentLivenessCheck residentLivenessCheck;
+
 	@FXML
 	private Label registrationNavlabel;
 
@@ -431,6 +435,14 @@ public class GenericBiometricsController extends BaseController {
 		auditFactory.audit(getAuditEventForScan(currentModality.name()), Components.REG_BIOMETRICS, SessionContext.userId(),
 				AuditReferenceIdTypes.USER_ID.getReferenceTypeId());
 
+		// Face liveness: with the field's attempts used up, no stream is opened (LIV-011)
+		if (residentLivenessCheck.isRequired(currentModality) && !residentLivenessCheck.attemptLeft(
+				getRegistrationDTOFromSession().getRegistrationId(), fxControl.getUiSchemaDTO().getId(), currentModality)) {
+			generateAlert(RegistrationConstants.ERROR, io.mosip.registration.liveness.desktop.overlay.Messages.english()
+					.text(io.mosip.registration.liveness.api.LivenessErrorCode.MAX_RETRIES_EXCEEDED.messageKey()));
+			return;
+		}
+
 		disableEnableBiometricPane(true);
 
 		deviceSearchTask = new Service<MdmBioDevice>() {
@@ -488,6 +500,12 @@ public class GenericBiometricsController extends BaseController {
 						generateAlert(RegistrationConstants.ERROR, RegistrationUIConstants.getMessageLanguageSpecific(RegistrationUIConstants.STREAMING_ERROR));
 						return;
 					}
+					if (residentLivenessCheck.isRequired(currentModality)) {
+						// Face liveness first: the device is asked for the face only after a pass
+						streamer.startStream(urlStream, biometricImage, biometricImage);
+						checkLivenessThenCapture(mdmBioDevice);
+						return;
+					}
 					rCaptureTaskService();
 					streamer.startStream(urlStream, biometricImage, biometricImage);
 
@@ -513,6 +531,34 @@ public class GenericBiometricsController extends BaseController {
 			}
 		});
 
+	}
+
+	/**
+	 * Runs the face liveness check on the stream just started; a pass starts the capture, anything else ends this
+	 * scan without one. With no attempt left, Scan stays off.
+	 */
+	private void checkLivenessThenCapture(MdmBioDevice mdmBioDevice) {
+		Runnable endScan = () -> {
+			SessionContext.setAutoLogout(true);
+			streamer.setUrlStream(null);
+			disableEnableBiometricPane(false);
+		};
+		try {
+			residentLivenessCheck.run(mdmBioDevice, getRegistrationDTOFromSession().getRegistrationId(),
+					fxControl.getUiSchemaDTO().getId(), currentModality, bioService.getRetryCount(currentModality),
+					scanBtn.getScene().getWindow(), this::rCaptureTaskService, retryAllowed -> {
+						endScan.run();
+						if (!retryAllowed) {
+							scanBtn.setDisable(true);
+						}
+					}, () -> scan((ActionEvent) null));
+		} catch (io.mosip.registration.liveness.api.LivenessException | RuntimeException exception) {
+			// Liveness is on but cannot run: the capture is blocked rather than taken unchecked
+			LOGGER.error("Face liveness could not start", exception);
+			generateAlert(RegistrationConstants.ERROR,
+					RegistrationUIConstants.getMessageLanguageSpecific(RegistrationUIConstants.BIOMETRIC_SCANNING_ERROR));
+			endScan.run();
+		}
 	}
 
 	private void disableEnableBiometricPane(boolean flag) {

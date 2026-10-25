@@ -56,6 +56,14 @@
                     <enabled>false</enabled>	
                     </snapshots>	
                   </repository>	
+                <!-- Face liveness (PS04): liveness-core and liveness-desktop are published by JitPack from their tags -->
+                <repository>
+                    <id>jitpack</id>
+                    <url>https://jitpack.io</url>
+                    <snapshots>
+                    <enabled>false</enabled>
+                    </snapshots>
+                </repository>
         </repositories>
          
          <distributionManagement>	
@@ -143,6 +151,8 @@
 		<javax.activation.version>1.2.0</javax.activation.version>
         <jaxb.api.version>2.3.0</jaxb.api.version>
 		<openjfx.version>11.0.2</openjfx.version>
+		<!-- mosip-face-liveness release tag (PS04) -->
+		<liveness.version>v0.2.5</liveness.version>
 		
 		<sonar.coverage.exclusions>
 			**/dto/**,

@@ -70,6 +70,17 @@
 			<artifactId>javafx-web</artifactId>
 			<version>${openjfx.version}</version>
 		</dependency>
+		<!-- Face liveness before the resident face capture (PS04); off unless mosip.registration.face.liveness.enabled -->
+		<dependency>
+			<groupId>com.github.Incertainty-Labs.mosip-face-liveness</groupId>
+			<artifactId>liveness-core</artifactId>
+			<version>${liveness.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>com.github.Incertainty-Labs.mosip-face-liveness</groupId>
+			<artifactId>liveness-desktop</artifactId>
+			<version>${liveness.version}</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>
