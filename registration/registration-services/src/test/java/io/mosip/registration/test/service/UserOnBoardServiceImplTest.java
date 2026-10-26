@@ -1,6 +1,9 @@
 package io.mosip.registration.test.service;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
+
+import io.mosip.registration.dto.ResponseDTO;
 
 import java.net.SocketTimeoutException;
 import java.security.NoSuchAlgorithmException;
@@ -275,6 +278,46 @@ public class UserOnBoardServiceImplTest {
 	
 	@Test
 	public void userOnBoardFailure() throws HttpClientErrorException, SocketTimeoutException, RegBaseCheckedException, ConnectionException, NoSuchAlgorithmException, CertificateEncodingException, BiometricException {
+		List<BiometricsDto> biometrics = mockOnboardRequestPreparation();
+
+		LinkedHashMap<String, Object> onBoardResponse = new LinkedHashMap<>();
+		LinkedHashMap<String, Object> respMap = new LinkedHashMap<>();
+		respMap.put(RegistrationConstants.ON_BOARD_AUTH_STATUS, false);
+		List<LinkedHashMap<String, Object>> errors = new ArrayList<>();
+		LinkedHashMap<String, Object> rMap = new LinkedHashMap<>();
+		rMap.put("errorMessage", "User Onboard Failed");
+		errors.add(rMap);
+		onBoardResponse.put(RegistrationConstants.RESPONSE, respMap);
+		onBoardResponse.put(RegistrationConstants.ERRORS, errors);
+		Mockito.when(serviceDelegateUtil.post(Mockito.anyString(), Mockito.any(), Mockito.anyString())).thenReturn(onBoardResponse);
+
+		assertNotNull(userOnboardServiceImpl.validateWithIDAuthAndSave(biometrics).getErrorResponseDTOs());
+	}
+
+	/** IDA answers a rejected onboarding with errors and no response (seen on MOSIP Collab, 23 Oct 2026). */
+	@Test
+	public void userOnBoardFailureWithoutResponseShowsIdaError() throws HttpClientErrorException, SocketTimeoutException, RegBaseCheckedException, ConnectionException, NoSuchAlgorithmException, CertificateEncodingException, BiometricException {
+		List<BiometricsDto> biometrics = mockOnboardRequestPreparation();
+
+		LinkedHashMap<String, Object> onBoardResponse = new LinkedHashMap<>();
+		List<LinkedHashMap<String, Object>> errors = new ArrayList<>();
+		LinkedHashMap<String, Object> idaError = new LinkedHashMap<>();
+		idaError.put("errorCode", "IDA-BIA-001");
+		idaError.put("errorMessage", "Biometric data - Face did not match");
+		errors.add(idaError);
+		onBoardResponse.put(RegistrationConstants.RESPONSE, null);
+		onBoardResponse.put(RegistrationConstants.ERRORS, errors);
+		Mockito.when(serviceDelegateUtil.post(Mockito.anyString(), Mockito.any(), Mockito.anyString())).thenReturn(onBoardResponse);
+
+		ResponseDTO responseDTO = userOnboardServiceImpl.validateWithIDAuthAndSave(biometrics);
+
+		assertNotNull(responseDTO.getErrorResponseDTOs());
+		assertEquals("IDA-BIA-001 --> Biometric data - Face did not match",
+				responseDTO.getErrorResponseDTOs().get(0).getMessage());
+	}
+
+	/** Mocks everything validateWithIDAuthAndSave needs before it posts the request to IDA. */
+	private List<BiometricsDto> mockOnboardRequestPreparation() throws HttpClientErrorException, SocketTimeoutException, RegBaseCheckedException, ConnectionException, NoSuchAlgorithmException, CertificateEncodingException, BiometricException {
 		Mockito.when(serviceDelegateUtil.prepareURLByHostName(Mockito.anyString())).thenReturn("https://dev.mosip.net");
 		KeyPairGenerateResponseDto certificateDto = new KeyPairGenerateResponseDto();
 		Mockito.when(keymanagerService.getCertificate(Mockito.anyString(), Mockito.any())).thenReturn(certificateDto);
@@ -332,19 +375,7 @@ public class UserOnBoardServiceImplTest {
 		PowerMockito.doReturn(symmentricKey).when(keyGenerator).generateKey();
 		
 		Mockito.when(cryptoCore.asymmetricEncrypt(Mockito.any(), Mockito.any())).thenReturn("test".getBytes());
-		
-		LinkedHashMap<String, Object> onBoardResponse = new LinkedHashMap<>();
-		LinkedHashMap<String, Object> respMap = new LinkedHashMap<>();
-		respMap.put(RegistrationConstants.ON_BOARD_AUTH_STATUS, false);
-		List<LinkedHashMap<String, Object>> errors = new ArrayList<>();
-		LinkedHashMap<String, Object> rMap = new LinkedHashMap<>();
-		rMap.put("errorMessage", "User Onboard Failed");
-		errors.add(rMap);
-		onBoardResponse.put(RegistrationConstants.RESPONSE, respMap);
-		onBoardResponse.put(RegistrationConstants.ERRORS, errors);
-		Mockito.when(serviceDelegateUtil.post(Mockito.anyString(), Mockito.any(), Mockito.anyString())).thenReturn(onBoardResponse);
-		
-		assertNotNull(userOnboardServiceImpl.validateWithIDAuthAndSave(biometrics).getErrorResponseDTOs());		
+		return biometrics;
 	}
 
 	
